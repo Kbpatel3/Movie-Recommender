@@ -131,3 +131,6 @@ dmypy.json
 
 # Dataset
 dataset/
+
+# Model
+model/
