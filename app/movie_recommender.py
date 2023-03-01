@@ -1,5 +1,10 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import lit
+from pyspark.sql.types import IntegerType, FloatType
+from pyspark.sql.functions import lit, col, explode
+
+from pyspark.ml.evaluation import RegressionEvaluator
+from pyspark.ml.recommendation import ALS
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 
 
 
@@ -39,6 +44,46 @@ def ratings_to_binary(ratings):
     return new_ratings
 
 
+def create_als_model():
+    return ALS(
+        userCol="userId",
+        itemCol="movieId",
+        ratingCol="rating",
+        nonnegative=True,
+        implicitPrefs=False,
+        coldStartStrategy="drop"
+    )
+
+
+def build_param_grid(als_model):
+    return ParamGridBuilder().addGrid(als_model.rank, [10, 50, 100, 150]).addGrid(als_model.regParam, [0.01, 0.05, 0.1, 0.15]).build()
+
+def build_evaluator():
+    return RegressionEvaluator(metricName="rmse", labelCol="rating", predictionCol="prediction")
+
+def build_cross_validator(als_model, param_grid, evaluator):
+    return CrossValidator(estimator=als_model, estimatorParamMaps=param_grid, evaluator=evaluator, numFolds=5)
+
+def train_models(cross_validation, evaluator, training_dataset, testing_dataset):
+    #Fit cross validator to the 'train' dataset
+    model = cross_validation.fit(training_dataset)#Extract best model from the cv model above
+    best_model = model.bestModel # View the predictions
+    predictions_from_test = best_model.transform(testing_dataset)
+    RMSE = evaluator.evaluate(predictions_from_test)
+    print(RMSE)
+
+    return best_model
+
+def make_recommendations(best_model):
+    # Generate n Recommendations for all users
+    recommendations = best_model.recommendForAllUsers(5)
+    recommendations.show()
+
+def print_recommendations():
+    nrecommendations = nrecommendations.withColumn("rec_exp", explode("recommendations")).select('userId', col("rec_exp.movieId"), col("rec_exp.rating"))
+    
+    nrecommendations.limit(10).show()
+
 def main():
     # Instantiating a Spark session
     spark = SparkSession.builder.appName('Movie Recommender').getOrCreate()
@@ -48,6 +93,15 @@ def main():
 
     # Read the ratings data into a dataframe called ratings
     ratings = load_ratings_dataframes(spark)
+
+    # TODO
+    # Convert the userIds, movieId, and rating to interger types instead of strings
+    ratings = ratings.withColumn("userId",ratings.userId.cast(IntegerType()))
+    ratings = ratings.withColumn("movieId",ratings.movieId.cast(IntegerType()))
+    ratings = ratings.withColumn("rating",ratings.rating.cast(FloatType()))
+
+    # Convert the movieIds to integer types instead of strings
+    movies = movies.withColumn("movieId",movies.movieId.cast(IntegerType()))
 
     # Show the ratings dataframe
     ratings.show()
@@ -68,12 +122,41 @@ def main():
     # Create our training and testing datasets
     (training_dataset, testing_dataset) = ratings.randomSplit([0.8, 0.2], seed=2023)
 
+
     # Convert ratings into binary format where 0 means not watched and 1 means watched
     new_ratings = ratings_to_binary(ratings)
 
     # Show the newly converted dataframe
     new_ratings.show()
 
+    # Create the ALS model
+    als_model = create_als_model()
+
+    '''
+    Generate the 'Best' model
+    '''
+
+    # Add hyperparameters and their respective values to param_grid
+    param_grid = build_param_grid(als_model)
+
+    # Defining the evaluator for the model using RMSE (Root Mean Square Error)
+    evaluator = build_evaluator()
+
+    # Build cross validation using CrossValidator
+    cross_validation = build_cross_validator(als_model, param_grid, evaluator)
+
+
+    print("Number of models to be tested: ", len(param_grid))
+
+    # Fit the best model and evaluate predictions
+    best_model = train_models(cross_validation, evaluator, training_dataset, testing_dataset)
+
+    print("**Best Model**")# Print "Rank"
+    print("  Rank:", best_model._java_obj.parent().getRank())# Print "MaxIter"
+    print("  MaxIter:", best_model._java_obj.parent().getMaxIter())# Print "RegParam"
+    print("  RegParam:", best_model._java_obj.parent().getRegParam())
+
+    make_recommendations(best_model)
 
 
 if __name__ == "__main__":
