@@ -4,6 +4,7 @@ from pyspark.sql.functions import lit, col, explode
 
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.recommendation import ALS
+from pyspark.ml.recommendation import ALSModel
 from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 
 
@@ -67,7 +68,6 @@ def build_cross_validator(als_model, param_grid, evaluator):
 def train_models(cross_validation, evaluator, training_dataset, testing_dataset):
     #Fit cross validator to the 'train' dataset
     model = cross_validation.fit(training_dataset)#Extract best model from the cv model above
-    model.save("./dataset")
     best_model = model.bestModel # View the predictions
     predictions_from_test = best_model.transform(testing_dataset)
     RMSE = evaluator.evaluate(predictions_from_test)
@@ -75,7 +75,9 @@ def train_models(cross_validation, evaluator, training_dataset, testing_dataset)
 
     return best_model
 
-def make_recommendations(best_model):
+def make_recommendations():
+    best_model = ALSModel.load("./model/")
+
     # Generate n Recommendations for all users
     recommendations = best_model.recommendForAllUsers(5)
     recommendations.show()
@@ -156,12 +158,15 @@ def main():
     # Fit the best model and evaluate predictions
     best_model = train_models(cross_validation, evaluator, training_dataset, testing_dataset)
 
+    # Save the best model
+    best_model.write().overwrite().save("./model/")
+
     print("**Best Model**")# Print "Rank"
     print("  Rank:", best_model._java_obj.parent().getRank())# Print "MaxIter"
     print("  MaxIter:", best_model._java_obj.parent().getMaxIter())# Print "RegParam"
     print("  RegParam:", best_model._java_obj.parent().getRegParam())
 
-    recommendations = make_recommendations(best_model)
+    recommendations = make_recommendations()
     print_recommendations(movies, recommendations)
 
 
