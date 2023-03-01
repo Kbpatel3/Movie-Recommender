@@ -10,10 +10,10 @@ from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 
 '''Combine two functions below'''
 def load_movies_dataframes(spark):
-    return spark.read.csv("../dataset/movies.csv",header=True)
+    return spark.read.csv("./dataset/movies.csv",header=True) # Was ../
 
 def load_ratings_dataframes(spark):
-    return spark.read.csv("../dataset/ratings.csv",header=True)
+    return spark.read.csv("./dataset/ratings.csv",header=True)
 
 def combine_dataframes(movies, ratings):
     return ratings.join(movies, ['movieId'], 'left')
@@ -67,6 +67,7 @@ def build_cross_validator(als_model, param_grid, evaluator):
 def train_models(cross_validation, evaluator, training_dataset, testing_dataset):
     #Fit cross validator to the 'train' dataset
     model = cross_validation.fit(training_dataset)#Extract best model from the cv model above
+    model.save("./dataset")
     best_model = model.bestModel # View the predictions
     predictions_from_test = best_model.transform(testing_dataset)
     RMSE = evaluator.evaluate(predictions_from_test)
@@ -78,11 +79,15 @@ def make_recommendations(best_model):
     # Generate n Recommendations for all users
     recommendations = best_model.recommendForAllUsers(5)
     recommendations.show()
+    return recommendations
 
-def print_recommendations():
-    nrecommendations = nrecommendations.withColumn("rec_exp", explode("recommendations")).select('userId', col("rec_exp.movieId"), col("rec_exp.rating"))
+def print_recommendations(movies, recommendations):
+    recommendations = recommendations.withColumn("rec_exp", explode("recommendations")).select('userId', col("rec_exp.movieId"), col("rec_exp.rating"))
     
-    nrecommendations.limit(10).show()
+    recommendations.limit(10).show()
+
+    print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>")
+    recommendations.join(movies, on='movieId').filter('userId = 611').show()
 
 def main():
     # Instantiating a Spark session
@@ -156,7 +161,10 @@ def main():
     print("  MaxIter:", best_model._java_obj.parent().getMaxIter())# Print "RegParam"
     print("  RegParam:", best_model._java_obj.parent().getRegParam())
 
-    make_recommendations(best_model)
+    recommendations = make_recommendations(best_model)
+    print_recommendations(movies, recommendations)
+
+
 
 
 if __name__ == "__main__":
