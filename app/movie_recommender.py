@@ -1,14 +1,22 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import lit
+from pyspark.sql.types import IntegerType, FloatType
+from pyspark.sql.functions import lit, col, explode
+
+from pyspark.ml.evaluation import RegressionEvaluator
+from pyspark.ml.recommendation import ALS
+from pyspark.ml.recommendation import ALSModel
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+
+import os
 
 
 
 '''Combine two functions below'''
 def load_movies_dataframes(spark):
-    return spark.read.csv("../dataset/movies.csv",header=True)
+    return spark.read.csv("./dataset/movies.csv",header=True) # Was ../
 
 def load_ratings_dataframes(spark):
-    return spark.read.csv("../dataset/ratings.csv",header=True)
+    return spark.read.csv("./dataset/ratings.csv",header=True)
 
 def combine_dataframes(movies, ratings):
     return ratings.join(movies, ['movieId'], 'left')
@@ -39,6 +47,67 @@ def ratings_to_binary(ratings):
     return new_ratings
 
 
+def create_als_model():
+    return ALS(
+        userCol="userId",
+        itemCol="movieId",
+        ratingCol="rating",
+        nonnegative=True,
+        implicitPrefs=False,
+        coldStartStrategy="drop"
+    )
+
+
+def build_param_grid(als_model):
+    #return ParamGridBuilder().addGrid(als_model.rank, [10, 50, 100, 150]).addGrid(als_model.regParam, [0.01, 0.05, 0.1, 0.15]).build()
+    return ParamGridBuilder().addGrid(als_model.rank, [10, 50, 100, 150]).addGrid(als_model.regParam, [0.01, 0.05, 0.1, 0.15]).build()
+
+def build_evaluator():
+    return RegressionEvaluator(metricName="rmse", labelCol="rating", predictionCol="prediction")
+
+def build_cross_validator(als_model, param_grid, evaluator):
+    return CrossValidator(estimator=als_model, estimatorParamMaps=param_grid, evaluator=evaluator, numFolds=5) # Fold was 5 change to 10 maybe
+
+def train_models(cross_validation, evaluator, training_dataset, testing_dataset):
+    #Fit cross validator to the 'train' dataset
+    model = cross_validation.fit(training_dataset)#Extract best model from the cv model above
+    best_model = model.bestModel # View the predictions
+    predictions_from_test = best_model.transform(testing_dataset)
+    RMSE = evaluator.evaluate(predictions_from_test)
+    print(RMSE)
+
+    return best_model
+
+def make_recommendations():
+    best_model = ALSModel.load("./model/")
+
+    # Generate n Recommendations for all users
+    recommendations = best_model.recommendForAllUsers(5)
+    recommendations.show()
+    return best_model
+
+def print_recommendations(movies, ratings, best_model, user):
+    user_subset = ratings.filter(col("userId") == user)
+    user_subset.show()
+    recommendations = best_model.recommendForUserSubset(user_subset, 10)
+
+    # Explode the recommendations column to create separate rows for each recommendation
+    exploded_recommendations = (
+        recommendations
+        .select(col("userId"), explode(col("recommendations")).alias("recommendation"))
+        .select(col("userId"), col("recommendation.movieId"), col("recommendation.rating"))
+    )
+
+    # Join the exploded recommendations with the movies DataFrame on the movieId column
+    recommendations_with_titles = (
+        exploded_recommendations
+        .join(movies, exploded_recommendations.movieId == movies.movieId)
+        .select(movies.title, exploded_recommendations.rating.alias("predicted_rating"))
+    )
+
+    # Show the top recommended movies with their predicted ratings for Dylan
+    recommendations_with_titles.show(10, truncate=False)
+
 def main():
     # Instantiating a Spark session
     spark = SparkSession.builder.appName('Movie Recommender').getOrCreate()
@@ -49,30 +118,80 @@ def main():
     # Read the ratings data into a dataframe called ratings
     ratings = load_ratings_dataframes(spark)
 
-    # Show the ratings dataframe
-    ratings.show()
+    # TODO
+    # Convert the userIds, movieId, and rating to interger types instead of strings
+    ratings = ratings.withColumn("userId",ratings.userId.cast(IntegerType()))
+    ratings = ratings.withColumn("movieId",ratings.movieId.cast(IntegerType()))
+    ratings = ratings.withColumn("rating",ratings.rating.cast(FloatType()))
 
-    # Show the movies dataframe
-    movies.show()
+    # Convert the movieIds to integer types instead of strings
+    movies = movies.withColumn("movieId",movies.movieId.cast(IntegerType()))
+    if not os.listdir('./model/'):
+        # Show the ratings dataframe
+        ratings.show()
 
-    # Combine the dataframes
-    combined_data = combine_dataframes(movies, ratings)
+        # Show the movies dataframe
+        movies.show()
 
-    # Show the combined dataframes
-    combined_data.show()
+        # Combine the dataframes
+        combined_data = combine_dataframes(movies, ratings)
 
-    # Calculate and print sparsity
-    data_sparsity = calculate_sparsity(ratings)
-    print(f'The sparsity level for the dataframe is: {data_sparsity}')
+        # Show the combined dataframes
+        combined_data.show()
 
-    # Create our training and testing datasets
-    (training_dataset, testing_dataset) = ratings.randomSplit([0.8, 0.2], seed=2023)
+        # Calculate and print sparsity
+        data_sparsity = calculate_sparsity(ratings)
+        print(f'The sparsity level for the dataframe is: {data_sparsity}')
 
-    # Convert ratings into binary format where 0 means not watched and 1 means watched
-    new_ratings = ratings_to_binary(ratings)
+        # Create our training and testing datasets
+        (training_dataset, testing_dataset) = ratings.randomSplit([0.8, 0.2], seed=2023)
 
-    # Show the newly converted dataframe
-    new_ratings.show()
+
+        # Convert ratings into binary format where 0 means not watched and 1 means watched
+        new_ratings = ratings_to_binary(ratings)
+
+        # Show the newly converted dataframe
+        new_ratings.show()
+
+        # Create the ALS model
+        als_model = create_als_model()
+
+        '''
+        Generate the 'Best' model
+        '''
+
+        # Add hyperparameters and their respective values to param_grid
+        param_grid = build_param_grid(als_model)
+
+        # Defining the evaluator for the model using RMSE (Root Mean Square Error)
+        evaluator = build_evaluator()
+
+        # Build cross validation using CrossValidator
+        cross_validation = build_cross_validator(als_model, param_grid, evaluator)
+
+
+        print("Number of models to be tested: ", len(param_grid))
+
+        # Fit the best model and evaluate predictions
+        best_model = train_models(cross_validation, evaluator, training_dataset, testing_dataset)
+
+        # Save the best model
+        best_model.write().overwrite().save("./model/")
+
+        print("**Best Model**")# Print "Rank"
+        print("  Rank:", best_model._java_obj.parent().getRank())# Print "MaxIter"
+        print("  MaxIter:", best_model._java_obj.parent().getMaxIter())# Print "RegParam"
+        print("  RegParam:", best_model._java_obj.parent().getRegParam())
+    else:
+        best_model = make_recommendations()
+        user_dylan = 611
+        user_harrison = 612
+        user_michael = 613
+        print_recommendations(movies, ratings, best_model, user_dylan)
+        print_recommendations(movies, ratings, best_model, user_harrison)
+        print_recommendations(movies, ratings, best_model, user_michael)
+
+
 
 
 
