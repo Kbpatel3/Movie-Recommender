@@ -60,13 +60,15 @@ def create_als_model():
 
 def build_param_grid(als_model):
     #return ParamGridBuilder().addGrid(als_model.rank, [10, 50, 100, 150]).addGrid(als_model.regParam, [0.01, 0.05, 0.1, 0.15]).build()
-    return ParamGridBuilder().addGrid(als_model.rank, [10, 50, 100, 150]).addGrid(als_model.regParam, [0.01, 0.05, 0.1, 0.15]).build()
+    
+    #return ParamGridBuilder().addGrid(als_model.rank, [5,50]).addGrid(als_model.regParam, [0.01,0.1]).build() #SHIT 0.877
+    return ParamGridBuilder().addGrid(als_model.rank, [10, 50, 100, 150, 200]).addGrid(als_model.regParam, [0.001, 0.01, 0.1]).build()
 
 def build_evaluator():
     return RegressionEvaluator(metricName="rmse", labelCol="rating", predictionCol="prediction")
 
 def build_cross_validator(als_model, param_grid, evaluator):
-    return CrossValidator(estimator=als_model, estimatorParamMaps=param_grid, evaluator=evaluator, numFolds=5) # Fold was 5 change to 10 maybe
+    return CrossValidator(estimator=als_model, estimatorParamMaps=param_grid, evaluator=evaluator, numFolds=10) # Fold was 5 change to 10 maybe
 
 def train_models(cross_validation, evaluator, training_dataset, testing_dataset):
     #Fit cross validator to the 'train' dataset
@@ -187,9 +189,11 @@ def main():
         user_dylan = 611
         user_harrison = 612
         user_michael = 613
+        user_kaushal = 614
         print_recommendations(movies, ratings, best_model, user_dylan)
         print_recommendations(movies, ratings, best_model, user_harrison)
         print_recommendations(movies, ratings, best_model, user_michael)
+        print_recommendations(movies, ratings, best_model, user_kaushal)
 
 
 
