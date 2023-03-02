@@ -1,6 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType, FloatType
-from pyspark.sql.functions import lit, col, explode
+from pyspark.sql.functions import lit, col, explode, rand
 
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.recommendation import ALS
@@ -59,9 +59,6 @@ def create_als_model():
 
 
 def build_param_grid(als_model):
-    #return ParamGridBuilder().addGrid(als_model.rank, [10, 50, 100, 150]).addGrid(als_model.regParam, [0.01, 0.05, 0.1, 0.15]).build()
-    
-    #return ParamGridBuilder().addGrid(als_model.rank, [5,50]).addGrid(als_model.regParam, [0.01,0.1]).build() #SHIT 0.877
     return ParamGridBuilder().addGrid(als_model.rank, [10, 50, 100, 150, 200]).addGrid(als_model.regParam, [0.001, 0.01, 0.1]).build()
 
 def build_evaluator():
@@ -91,7 +88,7 @@ def make_recommendations():
 def print_recommendations(movies, ratings, best_model, user):
     user_subset = ratings.filter(col("userId") == user)
     user_subset.show()
-    recommendations = best_model.recommendForUserSubset(user_subset, 10)
+    recommendations = best_model.recommendForUserSubset(user_subset, 1000)
 
     # Explode the recommendations column to create separate rows for each recommendation
     exploded_recommendations = (
@@ -107,8 +104,12 @@ def print_recommendations(movies, ratings, best_model, user):
         .select(movies.title, exploded_recommendations.rating.alias("predicted_rating"))
     )
 
-    # Show the top recommended movies with their predicted ratings for Dylan
-    recommendations_with_titles.show(10, truncate=False)
+    # Show the top recommended movies with their predicted ratings
+    #recommendations_with_titles.show(30, truncate=False)
+
+    # Show 30 recommendations shuffled
+    recommendations_with_titles = recommendations_with_titles.orderBy(rand())
+    recommendations_with_titles.show(30, truncate=False)
 
 def main():
     # Instantiating a Spark session
@@ -146,7 +147,7 @@ def main():
         print(f'The sparsity level for the dataframe is: {data_sparsity}')
 
         # Create our training and testing datasets
-        (training_dataset, testing_dataset) = ratings.randomSplit([0.8, 0.2], seed=2023)
+        (training_dataset, testing_dataset) = ratings.randomSplit([0.7, 0.3], seed=9119)
 
 
         # Convert ratings into binary format where 0 means not watched and 1 means watched
@@ -190,10 +191,33 @@ def main():
         user_harrison = 612
         user_michael = 613
         user_kaushal = 614
+        user_daniel = 615
+        user_shakers = 616
+        user_ighermance = 617
+        user_kmrichardson = 618
+        user_bksmith = 619
+        user_azwest = 620
+        user_ntflinchum = 621
+        user_armonroe = 623
+        user_djjennings = 624
+        user_barlowe = 625
+        user_zacheanes = 626
+
         print_recommendations(movies, ratings, best_model, user_dylan)
         print_recommendations(movies, ratings, best_model, user_harrison)
         print_recommendations(movies, ratings, best_model, user_michael)
         print_recommendations(movies, ratings, best_model, user_kaushal)
+        print_recommendations(movies, ratings, best_model, user_daniel)
+        print_recommendations(movies, ratings, best_model, user_shakers)
+        print_recommendations(movies, ratings, best_model, user_ighermance)
+        print_recommendations(movies, ratings, best_model, user_kmrichardson)
+        print_recommendations(movies, ratings, best_model, user_bksmith)
+        print_recommendations(movies, ratings, best_model, user_azwest)
+        print_recommendations(movies, ratings, best_model, user_ntflinchum)
+        print_recommendations(movies, ratings, best_model, user_armonroe)
+        print_recommendations(movies, ratings, best_model, user_djjennings)
+        print_recommendations(movies, ratings, best_model, user_barlowe)
+        print_recommendations(movies, ratings, best_model, user_zacheanes)
 
 
 
