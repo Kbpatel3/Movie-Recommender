@@ -85,7 +85,7 @@ def make_recommendations():
     recommendations.show()
     return best_model
 
-def print_recommendations(movies, ratings, best_model, user):
+def print_recommendations(movies, ratings, best_model, user, print_type, name):
     user_subset = ratings.filter(col("userId") == user)
     user_subset.show()
     recommendations = best_model.recommendForUserSubset(user_subset, 1000)
@@ -104,12 +104,28 @@ def print_recommendations(movies, ratings, best_model, user):
         .select(movies.title, exploded_recommendations.rating.alias("predicted_rating"))
     )
 
-    # Show the top recommended movies with their predicted ratings
-    #recommendations_with_titles.show(30, truncate=False)
+    if print_type == "0":
+        print(f'{name} here are your top 30 recommendations\n')
+        recommendations_with_titles.show(30, truncate=False)
+    elif print_type == "1":
+        print(f'{name} here are your top 30 shuffled recommendations\n')
+        recommendations_with_titles = recommendations_with_titles.orderBy(rand())
+        recommendations_with_titles.show(30, truncate=False)
 
-    # Show 30 recommendations shuffled
-    recommendations_with_titles = recommendations_with_titles.orderBy(rand())
-    recommendations_with_titles.show(30, truncate=False)
+    
+
+def user_recommendations(users, movies, ratings, best_model):
+    while True:
+        name = input("Please enter your name (or 'q' to quit): ")
+        full_or_shuffled = input("Please enter 0 for your top recommendations or enter 1 for shuffled recommendations: ")
+        
+        if name == 'q':
+            break
+
+        user_id = users.filter(col("name") == name).select(col("id")).first()[0]
+
+        print_recommendations(movies, ratings, best_model, user_id, full_or_shuffled, name)
+
 
 def main():
     # Instantiating a Spark session
@@ -187,37 +203,12 @@ def main():
         print("  RegParam:", best_model._java_obj.parent().getRegParam())
     else:
         best_model = make_recommendations()
-        user_dylan = 611
-        user_harrison = 612
-        user_michael = 613
-        user_kaushal = 614
-        user_daniel = 615
-        user_shakers = 616
-        user_ighermance = 617
-        user_kmrichardson = 618
-        user_bksmith = 619
-        user_azwest = 620
-        user_ntflinchum = 621
-        user_armonroe = 623
-        user_djjennings = 624
-        user_barlowe = 625
-        user_zacheanes = 626
 
-        print_recommendations(movies, ratings, best_model, user_dylan)
-        print_recommendations(movies, ratings, best_model, user_harrison)
-        print_recommendations(movies, ratings, best_model, user_michael)
-        print_recommendations(movies, ratings, best_model, user_kaushal)
-        print_recommendations(movies, ratings, best_model, user_daniel)
-        print_recommendations(movies, ratings, best_model, user_shakers)
-        print_recommendations(movies, ratings, best_model, user_ighermance)
-        print_recommendations(movies, ratings, best_model, user_kmrichardson)
-        print_recommendations(movies, ratings, best_model, user_bksmith)
-        print_recommendations(movies, ratings, best_model, user_azwest)
-        print_recommendations(movies, ratings, best_model, user_ntflinchum)
-        print_recommendations(movies, ratings, best_model, user_armonroe)
-        print_recommendations(movies, ratings, best_model, user_djjennings)
-        print_recommendations(movies, ratings, best_model, user_barlowe)
-        print_recommendations(movies, ratings, best_model, user_zacheanes)
+        # Read the users data into a dataframe called users
+        users = spark.read.csv("./dataset/users.csv",header=True)
+        users = users.withColumn("id",users.id.cast(IntegerType()))
+        
+        user_recommendations(users, movies, ratings, best_model)
 
 
 
